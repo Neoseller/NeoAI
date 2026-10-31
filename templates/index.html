@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>neo AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>⚡ neo AI</h2>
+            </div>
+            <div class="sidebar-footer">
+                <label>Temperature</label>
+                <input type="range" id="temp" min="0.1" max="2" step="0.1" value="0.7">
+                <span id="temp-val">0.7</span>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div id="output" class="output"></div>
+            <div class="input-bar">
+                <textarea id="inp" placeholder="Ask neo AI to write code..." rows="1"></textarea>
+                <button id="send" class="btn btn-primary">Send</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const inp = document.getElementById('inp');
+        const sendBtn = document.getElementById('send');
+        const tempSlider = document.getElementById('temp');
+        const tempVal = document.getElementById('temp-val');
+
+        tempSlider.addEventListener('input', () => {
+            tempVal.textContent = tempSlider.value;
+        });
+
+        function addBlock(role, text) {
+            const div = document.createElement('div');
+            div.className = `block ${role}`;
+            const label = document.createElement('div');
+            label.className = 'label';
+            label.textContent = role === 'you' ? 'You' : 'neo AI';
+            const code = document.createElement('pre');
+            code.textContent = text;
+            div.appendChild(label);
+            div.appendChild(code);
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            return code;
+        }
+
+        async function send() {
+            const text = inp.value.trim();
+            if (!text) return;
+            inp.value = '';
+            inp.style.height = 'auto';
+            addBlock('you', text);
+
+            const temp = parseFloat(tempSlider.value);
+            const codeEl = addBlock('ai', 'Thinking...');
+            sendBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompt: text, temperature: temp, max_tokens: 2048})
+                });
+                const data = await res.json();
+                if (data.error) {
+                    codeEl.textContent = 'Error: ' + data.error;
+                } else {
+                    codeEl.textContent = data.code;
+                }
+            } catch (e) {
+                codeEl.textContent = 'Error: ' + e.message;
+            }
+
+            sendBtn.disabled = false;
+        }
+
+        sendBtn.addEventListener('click', send);
+        inp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+            }
+        });
+        inp.addEventListener('input', () => {
+            inp.style.height = 'auto';
+            inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Code Assistant - GGUF</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* GGUF-specific styles */
+        .model-status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .model-status.loaded {
+            background: #2d5a3d;
+            color: #a8e6a8;
+        }
+        .model-status.not-loaded {
+            background: #5a3d2d;
+            color: #e6c4a8;
+        }
+        .model-actions {
+            display: flex;
+            gap: 5px;
+            padding: 0 10px;
+            margin-bottom: 10px;
+        }
+        .model-actions .btn {
+            flex: 1;
+            font-size: 11px;
+            padding: 6px;
+        }
+        .stats {
+            font-size: 11px;
+            color: #888;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>🤖 AI Code GGUF</h2>
+                <button id="new-btn" class="btn btn-primary">+</button>
+            </div>
+            
+            <!-- Статус модели -->
+            <div id="model-status" class="model-status not-loaded">
+                Loading...
+            </div>
+            <div class="model-actions">
+                <button id="load-btn" class="btn btn-secondary" onclick="loadModel()">Load</button>
+                <button id="download-btn" class="btn btn-secondary" onclick="downloadModel()">Download</button>
+            </div>
+            
+            <div id="history" class="history"></div>
+            <div class="sidebar-footer">
+                <label>Temperature</label>
+                <input type="range" id="temp" min="0.1" max="2" step="0.1" value="0.7">
+                <span id="temp-val">0.7</span>
+                <div class="stats" id="stats"></div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div id="output" class="output"></div>
+            <div class="input-bar">
+                <textarea id="inp" placeholder="Напиши промпт для генерации кода..." rows="1"></textarea>
+                <button id="send" class="btn btn-primary">Send</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const inp = document.getElementById('inp');
+        const sendBtn = document.getElementById('send');
+        const tempSlider = document.getElementById('temp');
+        const tempVal = document.getElementById('temp-val');
+        const modelStatus = document.getElementById('model-status');
+        const loadBtn = document.getElementById('load-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const statsDiv = document.getElementById('stats');
+
+        tempSlider.addEventListener('input', () => {
+            tempVal.textContent = tempSlider.value;
+        });
+
+        // Проверка статуса модели
+        async function checkModelStatus() {
+            try {
+                const res = await fetch('/api/info');
+                const data = await res.json();
+                
+                if (data.status === 'loaded') {
+                    modelStatus.className = 'model-status loaded';
+                    modelStatus.textContent = `✓ Loaded (${data.load_time}s)`;
+                    loadBtn.disabled = true;
+                    loadBtn.textContent = '✓ Loaded';
+                } else {
+                    modelStatus.className = 'model-status not-loaded';
+                    modelStatus.textContent = '✗ Not loaded';
+                    loadBtn.disabled = false;
+                    loadBtn.textContent = 'Load';
+                }
+            } catch (e) {
+                modelStatus.className = 'model-status not-loaded';
+                modelStatus.textContent = '✗ Error';
+            }
+        }
+
+        // Загрузка модели
+        async function loadModel() {
+            try {
+                loadBtn.disabled = true;
+                loadBtn.textContent = 'Loading...';
+                
+                const res = await fetch('/api/load_model', { method: 'POST' });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    await checkModelStatus();
+                } else {
+                    alert('Error: ' + data.detail);
+                    loadBtn.disabled = false;
+                    loadBtn.textContent = 'Load';
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load';
+            }
+        }
+
+        // Скачивание модели
+        async function downloadModel() {
+            if (!confirm('Download OLMo3 model (~10GB)? This will take a while.')) return;
+            
+            try {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = 'Downloading...';
+                
+                const res = await fetch('/api/download_model', { method: 'POST' });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    alert('Download complete! Now click Load to load the model.');
+                } else {
+                    alert('Error: ' + data.detail);
+                }
+                
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = 'Download';
+            } catch (e) {
+                alert('Error: ' + e.message);
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = 'Download';
+            }
+        }
+
+        function addBlock(role, text) {
+            const div = document.createElement('div');
+            div.className = `block ${role}`;
+            const label = document.createElement('div');
+            label.className = 'label';
+            label.textContent = role === 'you' ? 'Вы' : 'AI';
+            const code = document.createElement('pre');
+            code.textContent = text;
+            div.appendChild(label);
+            div.appendChild(code);
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            return code;
+        }
+
+        async function send() {
+            const text = inp.value.trim();
+            if (!text) return;
+            inp.value = '';
+            inp.style.height = 'auto';
+            addBlock('you', text);
+
+            const temp = parseFloat(tempSlider.value);
+            const codeEl = addBlock('ai', 'Generating...');
+            sendBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompt: text, temperature: temp, max_tokens: 512})
+                });
+                const data = await res.json();
+                if (data.detail) {
+                    codeEl.textContent = 'Ошибка: ' + data.detail;
+                } else if (data.error) {
+                    codeEl.textContent = 'Ошибка: ' + data.error;
+                } else {
+                    codeEl.textContent = data.code;
+                    // Показать статистику
+                    statsDiv.textContent = `${data.tokens_generated} tokens | ${data.generation_time}s | ${data.tokens_per_second} tok/s`;
+                }
+            } catch (e) {
+                codeEl.textContent = 'Ошибка: ' + e.message;
+            }
+
+            sendBtn.disabled = false;
+        }
+
+        sendBtn.addEventListener('click', send);
+        inp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+            }
+        });
+        inp.addEventListener('input', () => {
+            inp.style.height = 'auto';
+            inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
+        });
+
+        // Инициализация
+        checkModelStatus();
+    </script>
+</body>
+</html>
